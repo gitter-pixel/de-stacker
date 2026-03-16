@@ -14048,9 +14048,13 @@ function renderDashboard(){
     const si=gs(i); const isYou=i===CU;
     document.getElementById('scNm'+i).textContent=si.name||'Player '+(i+1);
     document.getElementById('scPts'+i).textContent=si.coins||0;
-    document.getElementById('scT'+i).textContent=(si.taskCoins||0);
-    document.getElementById('scC'+i).textContent=(si.codeCoins||0);
-    document.getElementById('scQ'+i).textContent=(si.quizCoins||0);
+    // Show counts not coin values
+    const taskCount = si.tasksCompleted || (si.taskCoins ? Math.round(si.taskCoins/5) : 0);
+    const codeCount = si.codeCount || (si.codeSolved||[]).length || (si.codeCoins ? Math.round(si.codeCoins/10) : 0);
+    const quizCount = si.quizAnswered || si.quizCount || (si.quizPassed||[]).length || (si.quizCoins ? Math.round(si.quizCoins/5) : 0);
+    document.getElementById('scT'+i).textContent = taskCount;
+    document.getElementById('scC'+i).textContent = codeCount;
+    document.getElementById('scQ'+i).textContent = quizCount;
     document.getElementById('scBg'+i).textContent=isYou?'YOU':'FRIEND';
     document.getElementById('scBg'+i).className='sc-badge '+(isYou?'you-b':'friend-b');
     document.getElementById('crown'+i).textContent='';
@@ -14556,7 +14560,7 @@ function renderDaily(){
       if(!t) return;
       const topic = TOPICS.find(function(tp){return tp.id===ct.topicId;});
       const isDone = getDone(CU).includes(ct.taskId);
-      const openBtn = isDone ? '' : '<button class="open-task-btn" onclick="openTaskModal(this.dataset.id)" data-id="'+t.id+'">📖 Open & Complete Task</button>';
+      const openBtn = isDone ? '' : '<button class="open-task-btn" onclick="openTaskModal(\'' + t.id + '\')" >📖 Open & Complete Task</button>';
       html += '<div class="task-card '+(isDone?'done':'')+'">';
       html += '<div class="task-check '+(isDone?'done':'')+'"><span>'+(isDone?'✓':'○')+'</span></div>';
       html += '<div class="task-body">';
@@ -14603,7 +14607,7 @@ function renderDaily(){
   regularTasks.forEach(function(t){
     const isDone = done.includes(t.id);
     const diffLabel2 = ['','🟢','🟡','🔴'][t.diff||1];
-    const openBtn = isDone ? '' : '<button class="open-task-btn" onclick="openTaskModal(this.dataset.id)" data-id="'+t.id+'">📖 Open & Complete Task</button>';
+    const openBtn = isDone ? '' : '<button class="open-task-btn" onclick="openTaskModal(\'' + t.id + '\')" >📖 Open & Complete Task</button>';
     html += '<div class="task-card '+(isDone?'done':'')+'">';
     html += '<div class="task-check '+(isDone?'done':'')+'"><span>'+(isDone?'✓':'○')+'</span></div>';
     html += '<div class="task-body">';
@@ -14644,12 +14648,18 @@ function openTaskModal(taskId){
   document.getElementById('tmDesc').textContent=t.desc;
 
   // Steps
-  document.getElementById('tmSteps').innerHTML=
-    '<div style="font-size:.78rem;font-weight:700;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;margin-bottom:.65rem">📋 Step-by-step guide</div>'+
-    (t.steps||[]).map((step,i)=>`<div style="display:flex;gap:.7rem;align-items:flex-start;padding:.55rem 0;border-bottom:1px solid var(--border)">
-      <div style="min-width:24px;height:24px;border-radius:50%;background:rgba(91,141,239,0.12);color:var(--blue);display:flex;align-items:center;justify-content:center;font-size:.74rem;font-weight:700;flex-shrink:0;">${i+1}</div>
-      <div style="font-size:.84rem;color:var(--text);line-height:1.65;">${step}</div>
-    </div>`).join('');
+  (function(){
+    var stepsEl = document.getElementById('tmSteps');
+    if(!stepsEl) return;
+    var sh = '<div style="font-size:.78rem;font-weight:700;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;margin-bottom:.65rem">📋 Step-by-step guide</div>';
+    (t.steps||[]).forEach(function(step, i){
+      sh += '<div style="display:flex;gap:.7rem;align-items:flex-start;padding:.55rem 0;border-bottom:1px solid var(--border)">';
+      sh += '<div style="min-width:24px;height:24px;border-radius:50%;background:rgba(91,141,239,0.12);color:var(--blue);display:flex;align-items:center;justify-content:center;font-size:.74rem;font-weight:700;flex-shrink:0;">'+(i+1)+'</div>';
+      sh += '<div style="font-size:.84rem;color:var(--text);line-height:1.65;">'+step+'</div>';
+      sh += '</div>';
+    });
+    stepsEl.innerHTML = sh;
+  })();
 
   // Quiz zone
   const qs=t.quiz||[];
@@ -14690,7 +14700,14 @@ function openTaskModal(taskId){
 }
 
 function tmSelectOpt(qi,oi){
-  const t=ALL_TASKS.find(x=>x.id===currentTaskId); if(!t) return;
+  // Ensure currentTaskId is set (safety check)
+  if(!currentTaskId){
+    // Try to recover from modal title or data
+    console.warn('tmSelectOpt: currentTaskId is null');
+    return;
+  }
+  const t=ALL_TASKS.find(x=>x.id===currentTaskId); 
+  if(!t){ console.warn('tmSelectOpt: task not found:', currentTaskId); return; }
   tmQuizSelections[qi]=oi;
   // Update visual selection
   const numOpts=t.quiz[qi].opts.length;
@@ -14744,7 +14761,9 @@ function submitTaskQuiz(){
   if(!done.includes(currentTaskId)){
     setDone(CU,[...done,currentTaskId]);
     addCoins(5,'task');
-    logAct(`✅ ${gs(CU).name} completed: ${t.name}`,'green');
+    // Increment task completed count
+    const _ts=gs(CU); _ts.tasksCompleted=(_ts.tasksCompleted||0)+1; ss(_ts,CU);
+    logAct('✅ '+gs(CU).name+' completed: '+t.name,'green');
     localStorage.setItem(`des_streak_\${CU}_${(new Date().getDay()+6)%7}`,todayKey());
   }
 
@@ -15952,6 +15971,7 @@ function startDbSync(roomCode, mySlotNum, myName){
       topicsCount:     data.topicsCount     || 0,
       codeCount:       data.codeCount       || 0,
       quizCount:       data.quizCount       || 0,
+      tasksCompleted:  data.tasksCompleted  || 0,
       completedTopics: Array(data.topicsCount||0).fill('x'),
       codeSolved:      Array(data.codeCount||0).fill('x'),
       quizPassed:      Array(data.quizCount||0).fill('x'),
@@ -16008,6 +16028,7 @@ function pushMyData(roomCode, slot, name){
     codeCoins:       s.codeCoins       || 0,
     quizCoins:       s.quizCoins       || 0,
     topicsCount:     s.topicsCount !== undefined ? s.topicsCount : (s.completedTopics||[]).length,
+    tasksCompleted:  s.tasksCompleted || 0,
     codeCount:       s.codeCount   !== undefined ? s.codeCount   : (s.codeSolved||[]).length,
     quizCount:       s.quizAnswered || s.quizCount || (s.quizPassed||[]).length,
     actLog:          (s.actLog||[]).slice(0,10),
